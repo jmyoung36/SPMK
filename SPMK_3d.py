@@ -1,6 +1,6 @@
 # import the stuff we need
 import numpy as np
-from scipy.spatial.distance import pdist, squareform
+from scipy.spatial.distance import cdist, pdist, squareform
 
 def build_histogram(codes, n_levels):
     codes_flat = codes.flat
@@ -36,7 +36,7 @@ def build_histogram_at_multiple_levels_rec_2d(codes_image, n_histogram_levels, l
         raw_histogram_0 = build_histogram(codes_image[0:width_step, 0:height_step], n_intensity_levels)
         raw_histogram_1 = build_histogram(codes_image[0:width_step, height_step:height], n_intensity_levels)
         raw_histogram_2 = build_histogram(codes_image[width_step:width, 0:height_step], n_intensity_levels)
-            aw_histogram_3 = build_histogram(codes_image[width_step:width, height_step:height], n_intensity_levels)
+        raw_histogram_3 = build_histogram(codes_image[width_step:width, height_step:height], n_intensity_levels)
             
         # calculate weight for this level
         if level == 0 :
@@ -163,13 +163,18 @@ def build_histogram_at_multiple_levels_rec_3d(codes_image, n_histogram_levels, l
         # calculate weighted histogram and append it to final histogram
         weighted_histogram = raw_histogram * weight
         final_histogram.append(weighted_histogram)
-            
-        #print 'raw histogram: '
-        #print raw_histogram
-        #print 'weighted histogram: '
-        #print weighted_histogram
+        
+        
+#        print 'level:'
+#        print level
+#        print 'weight:'
+#        print weight
+#        print 'raw histogram: '
+#        print raw_histogram
+#        print 'weighted histogram: 'accu
+#        print weighted_histogram
                      
-        # to avoid needing a dummy variable, if level is zero, return final only histogram to calling level above
+        # to avoid needing a dummy variable, if level is zero, return final only histogram to calling levlen(IXI_metadata), el above
         if level == 0 :
             return final_histogram
         # otherwise return histogram for this level and  final histogram to calling level above
@@ -190,7 +195,7 @@ def build_histogram_at_multiple_levels_rec_3d(codes_image, n_histogram_levels, l
         height_step = int(height/2)
         depth_step = int(depth/2)
         
-        # get histograms for the four subimages with recursive calls
+        # get histograms for the eight subimages with recursive calls
         raw_histogram_0,final_histogram = build_histogram_at_multiple_levels_rec_3d(codes_image[0:width_step, 0:height_step, 0:depth_step], n_histogram_levels, level + 1, n_intensity_levels, final_histogram)
         raw_histogram_1,final_histogram = build_histogram_at_multiple_levels_rec_3d(codes_image[0:width_step, height_step:height, 0:depth_step], n_histogram_levels, level + 1, n_intensity_levels, final_histogram)
         raw_histogram_2,final_histogram = build_histogram_at_multiple_levels_rec_3d(codes_image[width_step:width, 0:height_step, 0:depth_step], n_histogram_levels, level + 1, n_intensity_levels, final_histogram)
@@ -229,26 +234,8 @@ def build_histogram_at_multiple_levels_rec_3d(codes_image, n_histogram_levels, l
         # otherwise return histogram and final histogram to calling level above
         else:
             return raw_histogram, final_histogram
-                            
-def histogram_intersection_kernel_1(histograms, normalise=True):
     
-    if normalise :
-        
-        histogram_total = sum(histograms[0,:])
-        histograms = histograms / histogram_total
-        
-    n = np.shape(histograms)[0]
-
-    
-    K = np.zeros((n, n))
-    
-    for i in range(n):
-        for j in range(n):
-            K[i,j] = np.minimum(histograms[i,:], histograms[j,:]).sum()
-            
-    return K
-    
-def histogram_intersection_kernel_2(histograms, normalise=True):
+def histogram_intersection_kernel(histograms, normalise=False):
     
     if normalise :
         
@@ -256,6 +243,62 @@ def histogram_intersection_kernel_2(histograms, normalise=True):
         histograms = histograms / histogram_total
         
     K = squareform(pdist(histograms, lambda x, y: np.minimum(x,y).sum()))
-    np.fill_diagonal(K, 1.0)
+    for ind in range(len(histograms)) :
+        K[ind, ind] =  (np.minimum(histograms[ind,:], histograms[ind,:])).sum()
     return K
     
+def bhattacharyya_coefficient_kernel(histograms, normalise=True):
+    
+    if normalise :
+        
+        histogram_total = sum(histograms[0,:])
+        histograms = histograms / histogram_total
+        
+    K = squareform(pdist(histograms, lambda x, y: (np.sqrt(np.multiply(x,y))).sum()))
+    for i in range(len(histograms)) :
+        K[i,i] = np.sqrt(np.multiply(histograms[i,:],histograms[i,:])).sum()
+    return K
+    
+def histogram_intersection_kernel_2(histograms_1, histograms_2, normalise=False):
+    
+    if normalise :
+        
+        histogram_total = sum(histograms_1[0,:])
+        histograms_1 = histograms_1 / histogram_total
+        histograms_2 = histograms_2 / histogram_total
+        
+    K = cdist(histograms_1, histograms_2, lambda x, y: np.minimum(x,y).sum())
+    return K
+    
+def bhattacharyya_coefficient_kernel_2(histograms_1, histograms_2, normalise=True):
+    
+    if normalise :
+        
+        histogram_total = sum(histograms_1[0,:])
+        histograms_1 = histograms_1 / histogram_total
+        histograms_2 = histograms_2 / histogram_total
+        
+    K = cdist(histograms_1, histograms_2, lambda x, y: (np.sqrt(np.multiply(x,y))).sum())
+    return K    
+    
+def calculate_histogram_width(n_intensity_levels, n_histogram_levels, level):
+
+    if level == n_histogram_levels :
+        
+        if level == 1: 
+    
+            return ((2 ** (level - 1)) ** 3) * n_intensity_levels
+            
+        else :
+            
+            return (2 ** (level - 1)) ** 3
+        
+    else:
+        
+        if level == 1:
+                        
+            return ((2 ** (level - 1)) ** 3 + calculate_histogram_width(n_intensity_levels, n_histogram_levels, level + 1)) * n_intensity_levels
+        
+        else:
+            
+            return (2 ** (level - 1)) ** 3 + calculate_histogram_width(n_intensity_levels, n_histogram_levels, level + 1)
