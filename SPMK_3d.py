@@ -15,6 +15,13 @@ def quantise_intensities(image_data, n_levels):
     bins = 1.0/n_levels * np.array(range(1, n_levels + 1))
     return np.digitize(image_data, bins, right=True)
     
+# function to bin image intensity values into n_levels bins - take an argument
+# representing the maximum allowable intensity 
+def quantise_intensities_var(image_data, n_levels, max_int):
+    
+    bins = max_int/n_levels * np.array(range(0, n_levels))
+    return np.digitize(image_data, bins, right=False)
+    
 def build_histogram_at_multiple_levels_rec_2d(codes_image, n_histogram_levels, level, n_intensity_levels, final_histogram):
             
     # lowest level

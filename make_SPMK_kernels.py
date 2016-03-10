@@ -15,14 +15,15 @@ from sklearn import svm, cross_validation
 import SPMK_3d
 
 # directories
-data_dir = '/home/jonyoung/IoP_data/Data/IXI/GM-masked-groupwise-sub1pt5/'
+data_dir = '/home/jonyoung/IoP_data/Data/IXI/GM-masked-groupwise-mod/'
 metadata_dir = '/home/jonyoung/IoP_data/Data/IXI/'
+kernel_dir = '/home/jonyoung/IoP_data/Data/IXI/kernels/original/'
 
 # read through images
 files = os.listdir(data_dir)
 
-# optionally, filter out files with a particular level of smoothing
-files = [file for file in files if 'smooth_6' in file]
+# optionally, filter out files with a particular level of smoothing (or none)
+files = [file for file in files if 'smooth_8' in file]
 
 # extract IXI id number from filenames
 file_IXI_ids = map(lambda x: int(x.split('-')[0][3:]), files)
@@ -43,7 +44,7 @@ IXI_metadata = IXI_metadata[IXI_metadata['AGE'].notnull()]
 IXI_metadata = IXI_metadata[IXI_metadata['IXI_ID'].isin(file_IXI_ids)]
 
 # create an array to hold all the image data and read the images into it
-all_image_data = np.zeros((len(IXI_metadata), 2890000))
+all_image_data = np.zeros((len(IXI_metadata), 9830400))
 for i, row in zip(range(len(IXI_metadata)), IXI_metadata.iterrows()) :
     1
     if i % 10 == 0 :   
@@ -56,92 +57,104 @@ for i, row in zip(range(len(IXI_metadata)), IXI_metadata.iterrows()) :
     ind = file_IXI_ids.index(IXI_ID)
     
     img = nib.load(data_dir + files[ind])
+    print files[ind]
     #print i
     img_data = img.get_data()
     img_data[img_data > 1.0] = 1.0
     all_image_data[i,:] = img_data.flatten()
     
+K = np.dot(all_image_data, np.transpose(all_image_data))
+np.savetxt(kernel_dir + 'K_lin_smooth_8.csv', K, delimiter=',')
+    
 #all_image_data = all_image_data
 
 
-for i in range(5, 6) :
-    
-    for j in range(7, 8) :
-        
-        n_intensity_levels = 2 ** i
-        n_histogram_levels = j
-        
-        print 'n_intensity_levels = ' + str(n_intensity_levels)
-        print 'n_histogram_levels = ' + str(n_histogram_levels)
-        print 'Generating histogram pyramid...'
-        
-        # calculate histogram width
-        histogram_width =  SPMK_3d.calculate_histogram_width(n_intensity_levels, n_histogram_levels, 0)
-            
-        print 'Generating kernels...'
-        
-        ################################################################################################# 
-        #### IF WE READ EVERYTHING IN AND CALCULATE THE KERNEL IN ONE GO - FAST BUT MEMORY INTENSIVE ####
-        #################################################################################################
-        
-#        histogram_data = np.array(map(lambda x: np.array(SPMK_3d.build_histogram_at_multiple_levels_rec_3d(SPMK_3d.quantise_intensities(np.reshape(x, (170, 170, 100)), n_intensity_levels), n_histogram_levels, 0, n_intensity_levels, [])).flatten(), all_image_data))
-#        K = SPMK_3d.histogram_intersection_kernel(histogram_data, False)
-#        np.savetxt(metadata_dir + 'kernels/SPMK_intersection_' + str(n_intensity_levels) + '_' + str(n_histogram_levels) + '.csv', K, delimiter=',')
-#        K = SPMK_3d.bhattacharyya_coefficient_kernel(histogram_data, False)
-#        np.savetxt(metadata_dir + 'kernels/SPMK_bhattacharyya_' + str(n_intensity_levels) + '_' + str(n_histogram_levels) + '.csv', K, delimiter=',')
+#for i in range(4, 6) :
+#    
+#    if i == 4 :
 #        
-#        ## check this!!
-#        K = np.dot(histogram_data, np.transpose(histogram_data))
-#        np.savetxt(metadata_dir + 'kernels/SPMK_lin_' + str(n_intensity_levels) + '_' + str(n_histogram_levels) + '.csv', K, delimiter=',')
-        
-        ########################################################################### 
-        #### IF WE BUILD KERNEL ENTRY BY ENTRY - SLOW BUT NOT MEMORY INTENSIVE ####
-        ###########################################################################
-        
-        K_histogram_intersection = np.zeros((len(all_image_data), len(all_image_data)))
-        K_bhattacharyya = np.zeros((len(all_image_data), len(all_image_data)))
-        K_SPMK_lin = np.zeros((len(all_image_data), len(all_image_data)))         
-        
-        for k in range(len(all_image_data)) :
-            
-            for l in range(len(all_image_data)) :
-                                                                    
-                img_data_1 = np.reshape(all_image_data[k,:], (170, 170, 100))                
-                img_data_2 = np.reshape(all_image_data[l,:], (170, 170, 100))  
-                img_codes_1 = SPMK_3d.quantise_intensities(img_data_1, n_intensity_levels)
-                img_codes_2 = SPMK_3d.quantise_intensities(img_data_2, n_intensity_levels)
-                histogram_data_1 = np.array(SPMK_3d.build_histogram_at_multiple_levels_rec_3d(img_codes_1, n_histogram_levels, 0, n_intensity_levels, [])).flatten()
-                histogram_data_2 = np.array(SPMK_3d.build_histogram_at_multiple_levels_rec_3d(img_codes_2, n_histogram_levels, 0, n_intensity_levels, [])).flatten()                
-                K_SPMK_lin[k, l] = np.dot(histogram_data_1, histogram_data_2)               
-                K_histogram_intersection[k, l] = np.minimum(histogram_data_1,histogram_data_2).sum()
-                K_bhattacharyya[k, l] = np.sqrt(np.multiply(histogram_data_1,histogram_data_2)).sum()
-                
-                
-                
-                ### extra checks
-                if (k == 0 or k == 1) and (l == 0 or l == 1) :
-                    
-                    print 'k = ' + str(k) + ', l = ' + str(l)    
-                    print histogram_data_1
-                    print histogram_data_2
-                    foo = np.multiply(histogram_data_1, histogram_data_2).sum()
-                    print foo
-            
-#                
-#                
-#        # save kernels
-#        np.savetxt(metadata_dir + 'kernels/SPMK_intersection_' + str(n_intensity_levels) + '_' + str(n_histogram_levels) + '_2.csv', K_histogram_intersection, delimiter=',')
-#        np.savetxt(metadata_dir + 'kernels/SPMK_bhattacharyya_' + str(n_intensity_levels) + '_' + str(n_histogram_levels) + '_2.csv', K_bhattacharyya, delimiter=',')
-#        np.savetxt(metadata_dir + 'kernels/SPMK_lin_' + str(n_intensity_levels) + '_' + str(n_histogram_levels) + '_2.csv', K_SPMK_lin, delimiter=',')
-
-
-        ################################################################################ 
-        #### IF WE BUILD KERNEL IN MINIBATCHES - COMPROMISE IN TIME/MEMORY TRADEOFF ####
-        ################################################################################    
-                                                   
+#        jrange = range(7, 8)
+#        
+#    else :
+#        
+#        jrange = range(1, 8)
+#    
+##    for j in range(1, 8) :
+#    for j in jrange :
+#        
+#        n_intensity_levels = 2 ** i
+#        n_histogram_levels = j
+#        
+#        print 'n_intensity_levels = ' + str(n_intensity_levels)
+#        print 'n_histogram_levels = ' + str(n_histogram_levels)
+#        print 'Generating histogram pyramid...'
+#        
+#        # calculate histogram width1382978
+#        histogram_width =  SPMK_3d.calculate_histogram_width(n_intensity_levels, n_histogram_levels, 0)
+#            
+#        print 'Generating kernels...'
+#        
+##        ################################################################################################ 
+##        ### IF WE READ EVERYTHING IN AND CALCULATE THE KERNEL IN ONE GO - FAST BUT MEMORY INTENSIVE ####
+##        ################################################################################################
+##        
+##        histogram_data = np.array(map(lambda x: np.array(SPMK_3d.build_histogram_at_multiple_levels_rec_3d(SPMK_3d.quantise_intensities(np.reshape(x, (170, 170, 100)), n_intensity_levels), n_histogram_levels, 0, n_intensity_levels, [])).flatten(), all_image_data))
+##        K = SPMK_3d.histogram_intersection_kernel(histogram_data, False)
+##        np.savetxt(kernel_dir + 'SPMK_intersection_' + str(n_intensity_levels) + '_' + str(n_histogram_levels) + '.csv', K, delimiter=',')
+##        K = SPMK_3d.bhattacharyya_coefficient_kernel(histogram_data, False)
+##        np.savetxt(kernel_dir + 'SPMK_bhattacharyya_' + str(n_intensity_levels) + '_' + str(n_histogram_levels) + '.csv', K, delimiter=',')
+##        
+##        ## check this!!
+##        K = np.dot(histogram_data, np.transpose(histogram_data))
+##        np.savetxt(kernel_dir + 'SPMK_lin_' + str(n_intensity_levels) + '_' + str(n_histogram_levels) + '.csv', K, delimiter=',')
+#
+##       ############################################## 
+#        #### IF WE BUILD KERNEL ENTRY BY ENTRY - SLOW BUT NOT MEMORY INTENSIVE ####
+#        ###########################################################################
+#        
+##        K_histogram_intersection = np.zeros((len(all_image_data), len(all_image_data)))
+##        K_bhattacharyya = np.zeros((len(all_image_data), len(all_image_data)))
+##        K_SPMK_lin = np.zeros((len(all_image_data), len(all_image_data)))         
+##        
+##        for k in range(len(all_image_data)) :
+##            
+##            for l in range(len(all_image_data)) :
+##                                                                    
+##                img_data_1 = np.reshape(all_image_data[k,:], (170, 170, 100))                
+##                img_data_2 = np.reshape(all_image_data[l,:], (170, 170, 100))  
+##                img_codes_1 = SPMK_3d.quantise_intensities(img_data_1, n_intensity_levels)
+##                img_codes_2 = SPMK_3d.quantise_intensities(img_data_2, n_intensity_levels)
+##                histogram_data_1 = np.array(SPMK_3d.build_histogram_at_multiple_levels_rec_3d(img_codes_1, n_histogram_levels, 0, n_intensity_levels, [])).flatten()
+##                histogram_data_2 = np.array(SPMK_3d.build_histogram_at_multiple_levels_rec_3d(img_codes_2, n_histogram_levels, 0, n_intensity_levels, [])).flatten()                
+##                K_SPMK_lin[k, l] = np.dot(histogram_data_1, histogram_data_2)               
+##                K_histogram_intersection[k, l] = np.minimum(histogram_data_1,histogram_data_2).sum()
+##                K_bhattacharyya[k, l] = np.sqrt(np.multiply(histogram_data_1,histogram_data_2)).sum()
+##                
+##                
+##                
+##                ### extra checks
+##                if (k == 0 or k == 1) and (l == 0 or l == 1) :
+##                    
+##                    print 'k = ' + str(k) + ', l = ' + str(l)    
+##                    print histogram_data_1
+##                    print histogram_data_2
+##                    foo = np.multiply(histogram_data_1, histogram_data_2).sum()
+##                    print foo
+##            
+##                
+##                
+##        # save kernels
+##        np.savetxt(metadata_dir + 'kernels/SPMK_intersection_' + str(n_intensity_levels) + '_' + str(n_histogram_levels) + '_2.csv', K_histogram_intersection, delimiter=',')
+##        np.savetxt(metadata_dir + 'kernels/SPMK_bhattacharyya_' + str(n_intensity_levels) + '_' + str(n_histogram_levels) + '_2.csv', K_bhattacharyya, delimiter=',')
+##        np.savetxt(metadata_dir + 'kernels/SPMK_lin_' + str(n_intensity_levels) + '_' + str(n_histogram_levels) + '_2.csv', K_SPMK_lin, delimiter=',')
+#
+#
+#        ################################################################################ 
+#        #### IF WE BUILD KERNEL IN MINIBATCHES - COMPROMISE IN TIME/MEMORY TRADEOFF ####
+#        ################################################################################    
+#                                                   
 #        step_size = 40
 #        
-#        10
 #        K_histogram_intersection = np.zeros((len(all_image_data), len(all_image_data)))
 #        K_bhattacharyya = np.zeros((len(all_image_data), len(all_image_data)))
 #        K_SPMK_lin = np.zeros((len(all_image_data), len(all_image_data))) 
@@ -181,11 +194,11 @@ for i in range(5, 6) :
 #                    K_SPMK_lin[start_ind_1:stop_ind_1, start_ind_2:stop_ind_2] = np.dot(histogram_data_1, np.transpose(histogram_data_2))
 #                    K_histogram_intersection[start_ind_1:stop_ind_1, start_ind_2:stop_ind_2] = SPMK_3d.histogram_intersection_kernel_2(histogram_data_1, histogram_data_2, False)
 #                    K_bhattacharyya[start_ind_1:stop_ind_1, start_ind_2:stop_ind_2] = SPMK_3d.bhattacharyya_coefficient_kernel_2(histogram_data_1, histogram_data_2, False)
-        
-        # save kernels
-#        np.savetxt(metadata_dir + 'kernels/SPMK_intersection_' + str(n_intensity_levels) + '_' + str(n_histogram_levels) + '_3.csv', K_histogram_intersection, delimiter=',')
-#        np.savetxt(metadata_dir + 'kernels/SPMK_bhattacharyya_' + str(n_intensity_levels) + '_' + str(n_histogram_levels) + '_3.csv', K_bhattacharyya, delimiter=',')
-#        np.savetxt(metadata_dir + 'kernels/SPMK_lin_' + str(n_intensity_levels) + '_' + str(n_histogram_levels) + '_3.csv', K_SPMK_lin, delimiter=',')                
+#        
+#        # save kernels
+#        np.savetxt(kernel_dir + 'SPMK_intersection_' + str(n_intensity_levels) + '_' + str(n_histogram_levels) + '.csv', K_histogram_intersection, delimiter=',')
+#        np.savetxt(kernel_dir + 'SPMK_bhattacharyya_' + str(n_intensity_levels) + '_' + str(n_histogram_levels) + '.csv', K_bhattacharyya, delimiter=',')
+#        np.savetxt(kernel_dir + 'SPMK_lin_' + str(n_intensity_levels) + '_' + str(n_histogram_levels) + '.csv', K_SPMK_lin, delimiter=',')                
                 
 
                 
